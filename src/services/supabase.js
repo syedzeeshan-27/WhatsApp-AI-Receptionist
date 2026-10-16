@@ -9,12 +9,20 @@
  */
 const { createClient } = require("@supabase/supabase-js");
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  // We're a stateless server — no need to persist login sessions to disk.
-  { auth: { persistSession: false } }
-);
+// Created on first use, so requiring this file never crashes when Supabase
+// isn't configured (store.js falls back to the in-memory store in that case).
+let client = null;
+function db() {
+  if (!client) {
+    client = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      // We're a stateless server — no need to persist login sessions to disk.
+      { auth: { persistSession: false } }
+    );
+  }
+  return client;
+}
 
 /**
  * Save one message (incoming or outgoing) to the conversations table.
@@ -27,7 +35,7 @@ const supabase = createClient(
  * @returns {Promise<object|null>} the saved row, or null if it was a duplicate
  */
 async function saveMessage({ waId, role, content, waMessageId = null }) {
-  const { data, error } = await supabase
+  const { data, error } = await db()
     .from("conversations")
     .insert({
       wa_id: waId,
@@ -53,24 +61,24 @@ async function saveMessage({ waId, role, content, waMessageId = null }) {
 }
 
 /**
- * Fetch a customer's recent messages, oldest → newest.
- * Not used until Stage 4 (building history for Claude), but wired now so the
- * data layer is complete.
+ * Fetch a customer's most recent messages, returned oldest → newest.
  *
  * @param {string} waId    - the customer's WhatsApp number
  * @param {number} [limit] - max messages to return (default 20)
  * @returns {Promise<Array<{role: string, content: string}>>}
  */
 async function getHistory(waId, limit = 20) {
-  const { data, error } = await supabase
+  const { data, error } = await db()
     .from("conversations")
     .select("role, content, created_at")
     .eq("wa_id", waId)
-    .order("created_at", { ascending: true })
+    // Newest first + limit = the LAST `limit` messages. (Ascending + limit
+    // would return the FIRST 20 ever, so long chats lost their latest turns.)
+    .order("created_at", { ascending: false })
     .limit(limit);
 
   if (error) throw error;
-  return data;
+  return data.reverse();
 }
 
 /**
@@ -88,7 +96,7 @@ async function getHistory(waId, limit = 20) {
  * @returns {Promise<object>} the saved row
  */
 async function saveBooking({ waId, uid, rescheduleLink = null, cancelLink = null, startTime = null, title = null }) {
-  const { data, error } = await supabase
+  const { data, error } = await db()
     .from("bookings")
     .insert({
       wa_id: waId,
@@ -113,7 +121,7 @@ async function saveBooking({ waId, uid, rescheduleLink = null, cancelLink = null
  * @returns {Promise<object|null>}
  */
 async function getLatestBooking(waId) {
-  const { data, error } = await supabase
+  const { data, error } = await db()
     .from("bookings")
     .select("uid, reschedule_link, cancel_link, start_time, title")
     .eq("wa_id", waId)
@@ -132,12 +140,11 @@ async function getLatestBooking(waId) {
  * @returns {Promise<void>}
  */
 async function deleteBooking(uid) {
-  const { error } = await supabase.from("bookings").delete().eq("uid", uid);
+  const { error } = await db().from("bookings").delete().eq("uid", uid);
   if (error) throw error;
 }
 
 module.exports = {
-  supabase,
   saveMessage,
   getHistory,
   saveBooking,

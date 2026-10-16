@@ -1,11 +1,11 @@
 /**
  * whatsapp.js — sends outgoing WhatsApp messages via Meta's Graph API.
  *
- * Stage 5: this is the "mouth" of the bot. Given a recipient's number and some
- * text, it POSTs to the Cloud API so the message lands in their WhatsApp chat.
+ * Given a recipient's number and some text, it POSTs to the Cloud API so the
+ * message lands in their WhatsApp chat.
  *
  * Auth uses WHATSAPP_ACCESS_TOKEN (bearer) + WHATSAPP_PHONE_NUMBER_ID (which of
- * your numbers is sending) — both from the Meta dashboard, set back in Stage 1.
+ * your numbers is sending) — both from the Meta dashboard.
  */
 const axios = require("axios");
 
@@ -15,6 +15,8 @@ const GRAPH_API_VERSION = "v22.0";
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
 const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
 
+const isConfigured = Boolean(PHONE_NUMBER_ID && ACCESS_TOKEN);
+
 /**
  * Send a plain text WhatsApp message.
  *
@@ -23,6 +25,10 @@ const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
  * @returns {Promise<object>} Meta's API response data
  */
 async function sendMessage(to, text) {
+  if (!isConfigured) {
+    console.warn(`WhatsApp not configured — not sending to ${to}: ${text}`);
+    return null;
+  }
   const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${PHONE_NUMBER_ID}/messages`;
 
   try {
@@ -51,4 +57,4 @@ async function sendMessage(to, text) {
   }
 }
 
-module.exports = { sendMessage };
+module.exports = { sendMessage, isConfigured };

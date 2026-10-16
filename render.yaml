@@ -1,0 +1,24 @@
+# Render Blueprint: one free web service running the bot + web chat demo.
+# Dashboard → New → Blueprint → pick this repo. Render asks for the values
+# marked "sync: false". Leave them all blank for a fully offline demo.
+services:
+  - type: web
+    name: whatsapp-ai-receptionist
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: TIMEZONE
+        value: UTC
+      - key: WEB_CHAT
+        value: "on"
+      - key: WEB_CHAT_DAILY_LIMIT
+        value: "200"
+      - key: WEB_CHAT_SESSION_LIMIT
+        value: "25"

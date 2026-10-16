@@ -1,36 +1,53 @@
 /**
  * webhook.js — Meta WhatsApp webhook endpoint.
  *
- * Stage 1: GET verification handshake only.
- * When you click "Verify and save" in the Meta dashboard, Meta sends a GET
- * request to this URL with three query params:
+ * GET: verification handshake. When you click "Verify and save" in the Meta
+ * dashboard, Meta sends a GET with three query params:
  *   hub.mode          -> always "subscribe"
  *   hub.verify_token  -> the token YOU typed into the dashboard
  *   hub.challenge     -> a random string Meta wants echoed back
+ * We confirm the token matches WHATSAPP_VERIFY_TOKEN, then reply with the raw
+ * challenge and a 200. Any mismatch gets a 403 so a stranger can't connect.
  *
- * We confirm the token matches our WHATSAPP_VERIFY_TOKEN, then reply with the
- * raw challenge and a 200. Any mismatch gets a 403 so a stranger can't connect.
- *
- * Stage 2: POST handler (incoming messages).
- * Meta sends a POST to this URL every time something happens on your number
- * (a message arrives, or a status like "delivered"/"read" changes). For now we
- * just LOG real text messages so we can confirm they're reaching the server.
- * Replying with AI comes in a later stage.
+ * POST: incoming messages. Meta sends a POST every time something happens on
+ * your number (a message arrives, or a status like "delivered"/"read" changes).
+ * Text messages go through the conversation loop and the reply is sent back.
  */
 const express = require("express");
+const crypto = require("crypto");
 
-const { saveMessage } = require("../services/supabase");
-const { generateReply } = require("../services/claude");
-const { sendMessage } = require("../services/whatsapp");
+const { handleIncoming } = require("../services/conversation");
+const { send } = require("../services/messenger");
 
 const router = express.Router();
+
+const APP_SECRET = process.env.WHATSAPP_APP_SECRET || "";
+
+// Meta signs every POST with your App Secret (header X-Hub-Signature-256:
+// "sha256=<hex>"). Checking it stops anyone who finds your URL from faking
+// messages. Optional: skipped (with a warning) if WHATSAPP_APP_SECRET is unset.
+let warnedNoSecret = false;
+function verifyMetaSignature(rawBody, header, secret = APP_SECRET) {
+  if (!secret) {
+    if (!warnedNoSecret) {
+      console.warn("⚠️  WHATSAPP_APP_SECRET not set — not verifying Meta signatures.");
+      warnedNoSecret = true;
+    }
+    return true;
+  }
+  if (!header || !rawBody || !header.startsWith("sha256=")) return false;
+  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  const a = Buffer.from(header.slice("sha256=".length));
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 router.get("/", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (mode === "subscribe" && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+  if (mode === "subscribe" && token && token === process.env.WHATSAPP_VERIFY_TOKEN) {
     console.log("Webhook verified by Meta ✅");
     // Must send the raw challenge string back (not JSON) with status 200.
     return res.status(200).send(challenge);
@@ -41,6 +58,11 @@ router.get("/", (req, res) => {
 });
 
 router.post("/", async (req, res) => {
+  if (!verifyMetaSignature(req.rawBody, req.get("X-Hub-Signature-256"))) {
+    console.warn("WhatsApp webhook: bad signature ❌");
+    return res.sendStatus(401);
+  }
+
   // ALWAYS reply 200 right away. If we don't, Meta thinks delivery failed and
   // keeps re-sending the same event for hours. Acknowledge first, then process.
   res.sendStatus(200);
@@ -50,55 +72,30 @@ router.post("/", async (req, res) => {
     // object, which holds either incoming messages OR status updates.
     const value = req.body?.entry?.[0]?.changes?.[0]?.value;
 
-    // Status updates (sent / delivered / read) arrive here too — ignore them
-    // for now so the log stays clean and only shows real incoming messages.
-    if (value?.statuses) {
-      return;
-    }
+    // Status updates (sent / delivered / read) arrive here too — ignore them.
+    if (value?.statuses) return;
 
     const message = value?.messages?.[0];
-    if (!message) {
-      // Some other event we don't care about yet — quietly skip.
-      return;
-    }
+    if (!message) return;
 
-    const from = message.from; // sender's WhatsApp number (e.g. 9198...)
+    const from = message.from; // sender's WhatsApp number, digits only
     const name = value?.contacts?.[0]?.profile?.name || "Unknown";
 
-    // For now we only handle text. Skip non-text (images, audio, etc.) so we
-    // don't save junk — we'll support more types in a later stage.
+    // Only text for now. Images, audio, etc. are skipped.
     if (message.type !== "text") {
       console.log(`ℹ️  Ignoring non-text (${message.type}) message from ${from}`);
       return;
     }
 
     const text = message.text.body;
+    console.log(`📩 ${name} (${from}): ${text}`);
 
-    console.log("📩 Incoming WhatsApp message");
-    console.log(`   From: ${name} (${from})`);
-    console.log(`   Text: ${text}`);
+    // message.id is WhatsApp's wamid — used to drop duplicate deliveries.
+    const reply = await handleIncoming({ waId: from, text, messageId: message.id });
+    if (reply === null) return; // duplicate, already answered
 
-    // Stage 3: save the customer's message to the database.
-    // message.id is WhatsApp's wamid… — passed as waMessageId so duplicate
-    // deliveries are ignored by the unique index.
-    await saveMessage({
-      waId: from,
-      role: "user",
-      content: text,
-      waMessageId: message.id,
-    });
-    console.log("💾 Saved to conversations table.");
-
-    // Ask Claude for a reply.
-    const reply = await generateReply(from);
-    console.log("🤖 Claude's reply:");
-    console.log(`   ${reply}`);
-
-    // Stage 5: save the bot's reply (so it remembers what it said) and send it
-    // back to the customer on WhatsApp. This completes the full loop.
-    await saveMessage({ waId: from, role: "assistant", content: reply });
-    await sendMessage(from, reply);
-    console.log("📤 Reply sent to user on WhatsApp.");
+    console.log(`🤖 Reply: ${reply}`);
+    await send(from, reply);
   } catch (err) {
     // Never let a parsing/DB error crash the server — just log it.
     console.error("Error handling incoming webhook:", err);
@@ -106,3 +103,4 @@ router.post("/", async (req, res) => {
 });
 
 module.exports = router;
+module.exports.verifyMetaSignature = verifyMetaSignature;

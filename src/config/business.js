@@ -4,8 +4,7 @@
  * To set up the bot for a new client, you only edit THIS file (plus the
  * knowledge file and the .env values). No other code changes are needed.
  *
- * NOTE: This is a Stage 0 stub. The system prompt + knowledge injection get
- * wired into the Claude service in a later stage.
+ * "Bright Smile Dental" is a made-up example clinic used by the demo.
  */
 module.exports = {
   // Display name of the business
@@ -17,6 +16,10 @@ module.exports = {
   // Public Cal.com booking link the bot sends when a patient wants to book.
   // Mirrors CAL_LINK in .env; kept here so config stays in one place.
   calLink: process.env.CAL_LINK || "",
+
+  // Timezone used when telling patients their appointment time (IANA name,
+  // e.g. "America/New_York", "Europe/London", "Asia/Kolkata").
+  timezone: process.env.TIMEZONE || "UTC",
 
   // Path (relative to project root) to the knowledge/FAQ file the bot reads.
   knowledgeFile: "knowledge/faq.md",

@@ -1,28 +1,28 @@
 # WhatsApp AI Receptionist
 
-AI receptionist bot for small clinics.
-Stack: Node/Express + Claude Haiku 4.5 + Supabase + Cal.com. Deploys on Railway.
+Open-source AI receptionist bot for small clinics. Public repo: strangers clone it,
+so nothing may depend on one person's accounts, numbers or keys.
+Stack: Node/Express + Claude (Haiku 4.5 default) + Supabase (optional) + Cal.com (optional).
 Reusable per client by editing `src/config/business.js` + `knowledge/faq.md` + `.env`.
 
 ## Run locally
-- `npm run dev`        # server on :3000, auto-reloads
-- `ngrok http 3000`    # 2nd terminal; paste https URL into Meta + Cal webhooks
-- Endpoints: `/health`, `/webhook` (WhatsApp), `/webhooks/cal` (Cal.com)
+- `npm install`, then `npm run dev`  → http://localhost:3000 (browser chat demo)
+- Works with NO .env at all: offline keyword replies, in-memory storage, fake booking page.
+- `npm test` runs fully offline (it blanks real keys first).
+- For real WhatsApp: `ngrok http 3000`, paste the https URL + `/webhook` into Meta, `/webhooks/cal` into Cal.com.
 
 ## Rules / gotchas
 - Knowledge edits (`knowledge/faq.md`) need a server restart to take effect.
-- ngrok free URL changes on every restart → re-paste into Meta AND Cal each time.
-- `WHATSAPP_ACCESS_TOKEN` is a temp ~24h token; error `190` = refresh it.
-- WhatsApp 24h rule: free-form messages only reach users who messaged within 24h.
 - Bot must answer from `knowledge/faq.md` only — never invent hours/prices.
+- Customer ids starting with `web:` are browser-chat users; everything else is a WhatsApp number.
+- Temporary Meta access tokens die after ~24h (error `190`); real deploys need a System User token.
+- WhatsApp 24h rule: free-form messages only reach users who messaged within 24h.
+- Never commit `.env`. Keep personal data (real numbers, Cal links, Supabase URLs) out of tracked files.
 
 ## Key files
-- `src/routes/webhook.js`  WhatsApp in/out
-- `src/routes/cal.js`      Cal.com booking webhook
-- `src/services/claude.js` the brain (Claude Haiku)
-- `src/services/{supabase,whatsapp}.js`  memory / sending
-- `src/config/business.js` per-client persona
+See `docs/ARCHITECTURE.md` for the map. Entry: `src/index.js`. Core loop: `src/services/conversation.js`.
 
-## Where to find more (read when relevant)
-- Build status, what's verified, must-fix-before-client → `docs/STATUS.md`
-- Full architecture + per-client reuse checklist → `docs/ARCHITECTURE.md`
+## Lessons learned (do not repeat)
+- Stop test servers by their own PID/port only. Never `taskkill /IM node.exe`: it kills other sessions' Node processes too.
+- `node --test test/` fails on Node 22 (treats the dir as a module). Use plain `node --test`.
+- `python -I` hides user-site packages (Playwright lives there); only use `-I` for scripts that read untrusted downloads.

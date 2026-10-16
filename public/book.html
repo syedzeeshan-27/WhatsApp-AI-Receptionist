@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book an Appointment</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="book">
+  <div class="card" id="card">
+    <h1 id="title">Book an appointment</h1>
+    <p id="lead">Demo booking page (stands in for Cal.com). Pick a time and the confirmation shows up in your chat.</p>
+
+    <div id="form">
+      <label for="name">Your name</label>
+      <input id="name" value="Alex" maxlength="40">
+      <label>Choose a time</label>
+      <div class="slots" id="slots"></div>
+      <button class="primary" id="go" disabled>Confirm booking</button>
+    </div>
+  </div>
+</main>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  const sessionId = q.get("s");
+  const action = q.get("action"); // null | "reschedule" | "cancel"
+  const uid = q.get("uid");
+  const $ = (id) => document.getElementById(id);
+  let chosen = null;
+
+  if (action === "reschedule") {
+    $("title").textContent = "Pick a new time";
+    $("go").textContent = "Reschedule";
+  }
+  if (action === "cancel") {
+    $("title").textContent = "Cancel appointment";
+    $("lead").textContent = "This cancels your demo appointment. The chat gets a message straight away.";
+    $("slots").previousElementSibling.remove();
+    $("slots").remove();
+    $("go").textContent = "Cancel appointment";
+    $("go").classList.add("danger");
+    $("go").disabled = false;
+  }
+
+  // Next 3 weekdays, a few slots each (times in the visitor's local timezone).
+  const slots = [];
+  const d = new Date();
+  while (slots.length < 6) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() === 0 || d.getDay() === 6) continue;
+    for (const h of [10, 15]) {
+      const s = new Date(d);
+      s.setHours(h, 0, 0, 0);
+      slots.push(s);
+    }
+  }
+  if ($("slots")) {
+    for (const s of slots) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = s.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+      b.onclick = () => {
+        document.querySelectorAll(".slots button").forEach((x) => x.classList.remove("on"));
+        b.classList.add("on");
+        chosen = s;
+        $("go").disabled = false;
+      };
+      $("slots").appendChild(b);
+    }
+  }
+
+  $("go").onclick = async () => {
+    $("go").disabled = true;
+    const res = await fetch("api/demo/book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        uid,
+        action,
+        name: $("name").value,
+        startTime: chosen ? chosen.toISOString() : null,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    $("card").innerHTML = res.ok
+      ? `<div class="done"><div class="big">${action === "cancel" ? "🗓️" : "✅"}</div><h1>${action === "cancel" ? "Cancelled" : "You're booked"}</h1><p>Go back to the chat tab, the confirmation is waiting there.</p></div>`
+      : `<div class="done"><h1>Couldn't book</h1><p>${(data.error || "Something went wrong").replace(/</g, "&lt;")}</p></div>`;
+  };
+})();
+</script>
+</body>
+</html>

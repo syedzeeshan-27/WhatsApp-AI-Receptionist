@@ -1,12 +1,12 @@
 /**
- * claude.js — talks to Claude (Anthropic) to generate the bot's replies.
+ * claude.js — the bot's brain. Builds the system prompt + conversation history,
+ * calls Claude, and returns the reply text.
  *
- * Stage 4: build the conversation history + system prompt, call Claude Haiku,
- * and RETURN the reply text. We do NOT send it to WhatsApp yet — the webhook
- * just logs it so we can confirm Claude produces a sensible answer first.
+ * Model choice: Claude Haiku 4.5 by default — fast and cheap, the right fit for
+ * a high-volume receptionist bot. Override with CLAUDE_MODEL.
  *
- * Model choice: Claude Haiku 4.5 — fast and cost-effective, the right fit for
- * a high-volume receptionist bot (one deploy per client).
+ * No ANTHROPIC_API_KEY? Falls back to offline.js (keyword matching against the
+ * knowledge base) so the demo and tests still run.
  */
 const fs = require("fs");
 const path = require("path");
@@ -14,14 +14,17 @@ const path = require("path");
 const Anthropic = require("@anthropic-ai/sdk");
 
 const business = require("../config/business");
-const { getHistory, getLatestBooking } = require("./supabase");
+const { getHistory, getLatestBooking } = require("./store");
+const { offlineReply } = require("./offline");
 
-// The SDK automatically reads ANTHROPIC_API_KEY from the environment.
-const client = new Anthropic();
+const MODEL = process.env.CLAUDE_MODEL || "claude-haiku-4-5";
+const AI_ENABLED = Boolean(process.env.ANTHROPIC_API_KEY);
 
-const MODEL = "claude-haiku-4-5";
+// The SDK reads ANTHROPIC_API_KEY from the environment. Only created when a key
+// is set, so the offline mode never touches the API.
+const client = AI_ENABLED ? new Anthropic() : null;
 
-// Stage 6: load the clinic knowledge base (knowledge/faq.md) ONCE at startup.
+// Load the knowledge base (knowledge/faq.md) ONCE at startup.
 // This is the bot's source of truth — hours, services, prices, policies.
 // NOTE: edits to faq.md require a server restart to take effect.
 function loadKnowledge() {
@@ -37,8 +40,10 @@ function loadKnowledge() {
 const KNOWLEDGE = loadKnowledge();
 
 // Build the full system prompt by assembling: persona (business.js) +
-// WhatsApp formatting rules + the booking link (Stage 7) + the knowledge base.
-function buildSystemPrompt(booking = null) {
+// WhatsApp formatting rules + the booking link + the knowledge base.
+// `bookingLink` overrides the configured CAL_LINK (the web demo passes its own
+// fake booking page here).
+function buildSystemPrompt(booking = null, bookingLink = business.calLink) {
   const persona = business.systemPromptTemplate
     .replace(/{{name}}/g, business.name)
     .replace(/{{type}}/g, business.type);
@@ -76,15 +81,15 @@ function buildSystemPrompt(booking = null) {
       'services, hours, or booking an appointment. 😊"'
   );
 
-  // Stage 7 (Level 1): give Claude the real Cal.com booking link to share.
-  if (business.calLink) {
+  // Give Claude the real booking link to share.
+  if (bookingLink) {
     parts.push(
       "When a customer wants to book an appointment, share this exact booking " +
-        `link as a plain URL: ${business.calLink}`
+        `link as a plain URL: ${bookingLink}`
     );
   }
 
-  // Stage 6: ground answers in the knowledge base; never invent details.
+  // Ground answers in the knowledge base; never invent details.
   if (KNOWLEDGE) {
     parts.push(
       "Use ONLY the information in the knowledge base below to answer questions " +
@@ -106,7 +111,7 @@ function buildSystemPrompt(booking = null) {
         when = new Date(booking.start_time).toLocaleString("en-US", {
           dateStyle: "full",
           timeStyle: "short",
-          timeZone: "Asia/Kolkata",
+          timeZone: business.timezone,
         });
       }
     } catch {
@@ -129,9 +134,11 @@ function buildSystemPrompt(booking = null) {
  * Generate Claude's reply for a given customer, using their saved history.
  *
  * @param {string} waId - the customer's WhatsApp number (groups the convo)
+ * @param {object} [opts]
+ * @param {string} [opts.bookingLink] - booking link to share (defaults to CAL_LINK)
  * @returns {Promise<string>} the reply text Claude produced
  */
-async function generateReply(waId) {
+async function generateReply(waId, { bookingLink = business.calLink } = {}) {
   // Pull the recent conversation (oldest → newest). The customer's just-saved
   // message is already in here, so it's the last item.
   const history = await getHistory(waId, 20);
@@ -143,6 +150,17 @@ async function generateReply(waId) {
     booking = await getLatestBooking(waId);
   } catch (e) {
     console.error("Could not load booking for context:", e.message);
+  }
+
+  if (!AI_ENABLED) {
+    const last = [...history].reverse().find((m) => m.role === "user");
+    return offlineReply({
+      text: last ? last.content : "",
+      knowledge: KNOWLEDGE,
+      business,
+      bookingLink,
+      booking,
+    });
   }
 
   // Skip any blank/whitespace-only rows. Older crashes saved empty assistant
@@ -163,9 +181,12 @@ async function generateReply(waId) {
     // A receptionist reply is short; 400 tokens is plenty and caps the cost of
     // any reply (especially one that somehow slips past the scope guardrail).
     max_tokens: 400,
-    system: buildSystemPrompt(booking),
+    system: buildSystemPrompt(booking, bookingLink),
     messages,
   });
+
+  // Token usage per reply, so you can see what the bot costs to run.
+  console.log(`🧮 ${MODEL} tokens in/out: ${response.usage?.input_tokens}/${response.usage?.output_tokens}`);
 
   // The response content is a list of blocks; pull out the text and join it.
   const text = response.content
@@ -188,12 +209,12 @@ async function generateReply(waId) {
       response.content.map((b) => b.type).join(",") || "(none)"
     );
     return (
-      "Sorry, I didn't quite catch that could you say that another way? " +
-      "I'm happy to help you book, reschedule, or answer questions about the clinic."
+      "Sorry, I didn't quite catch that. Could you say that another way? " +
+      `I'm happy to help you book, reschedule, or answer questions about ${business.name}.`
     );
   }
 
   return text;
 }
 
-module.exports = { generateReply, buildSystemPrompt };
+module.exports = { generateReply, buildSystemPrompt, AI_ENABLED, MODEL };

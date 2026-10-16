@@ -1,40 +1,39 @@
 /**
- * cal.js — Cal.com booking webhook (Stage 7, Level 2).
+ * cal.js — Cal.com booking webhook.
  *
  * When a patient books, cancels, or reschedules on your Cal.com page, Cal sends
  * a POST here. We verify the signature, pull out who + when + their phone number,
- * and fire the matching WhatsApp confirmation back to them. We also keep a record
- * of the booking (uid + reschedule/cancel links) so the bot can share those links
- * later in chat — only when the patient asks.
+ * and hand it to services/bookings.js, which stores the booking and sends the
+ * WhatsApp confirmation.
  *
  * Heads-up on WhatsApp's 24-hour rule: free-form messages can only be sent to
  * someone who messaged your number within the last 24h. So a confirmation works
  * for patients who booked *through the chat* (the common case). Reaching a
- * brand-new number later requires an approved message template (a future step).
+ * brand-new number later requires an approved message template (not built yet).
  */
 const express = require("express");
 const crypto = require("crypto");
 
-const { sendMessage } = require("../services/whatsapp");
-const { saveBooking, deleteBooking } = require("../services/supabase");
+const { processBookingEvent } = require("../services/bookings");
 
 const router = express.Router();
 
 const SECRET = process.env.CAL_WEBHOOK_SECRET || "";
 
+// Base URL for reschedule/cancel links. Change it if you self-host Cal.com.
+const CAL_BASE_URL = (process.env.CAL_BASE_URL || "https://cal.com").replace(/\/+$/, "");
+
+const HANDLED = ["BOOKING_CREATED", "BOOKING_CANCELLED", "BOOKING_RESCHEDULED"];
+
 // Verify Cal's HMAC-SHA256 signature over the raw request body.
-function verifySignature(req) {
-  if (!SECRET) {
+function verifySignature(rawBody, signature, secret = SECRET) {
+  if (!secret) {
     console.warn("⚠️  CAL_WEBHOOK_SECRET not set — skipping signature check.");
     return true;
   }
-  const signature = req.get("X-Cal-Signature-256");
-  if (!signature || !req.rawBody) return false;
+  if (!signature || !rawBody) return false;
 
-  const expected = crypto
-    .createHmac("sha256", SECRET)
-    .update(req.rawBody)
-    .digest("hex");
+  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
 
   const a = Buffer.from(signature);
   const b = Buffer.from(expected);
@@ -56,14 +55,17 @@ function extractPhone(payload) {
       : responses.location?.value?.optionValue,
   ];
   for (const c of candidates) {
-    if (c && /\d{6,}/.test(String(c))) return String(c).replace(/\D/g, "");
+    // Count digits after stripping spaces, dashes and brackets, so a number
+    // typed as "+44 7700 900123" still counts. Phone numbers are 7–15 digits.
+    const digits = c ? String(c).replace(/\D/g, "") : "";
+    if (digits.length >= 7 && digits.length <= 15) return digits;
   }
   return null;
 }
 
 router.post("/", async (req, res) => {
   // Reject forged requests.
-  if (!verifySignature(req)) {
+  if (!verifySignature(req.rawBody, req.get("X-Cal-Signature-256"))) {
     console.warn("Cal webhook: bad signature ❌");
     return res.sendStatus(401);
   }
@@ -74,27 +76,10 @@ router.post("/", async (req, res) => {
   try {
     const { triggerEvent, payload } = req.body || {};
 
-    // We handle three Cal events: a new booking, a cancellation, and a
-    // reschedule. Anything else (e.g. meeting-ended) we ignore.
-    const HANDLED = ["BOOKING_CREATED", "BOOKING_CANCELLED", "BOOKING_RESCHEDULED"];
+    // Anything other than book / cancel / reschedule (e.g. meeting-ended) is ignored.
     if (!HANDLED.includes(triggerEvent)) return;
 
-    const name =
-      payload?.attendees?.[0]?.name || payload?.responses?.name?.value || "there";
     const phone = extractPhone(payload);
-
-    // Format the start time in the booker's timezone (shared by all events).
-    let when = payload?.startTime;
-    try {
-      when = new Date(payload.startTime).toLocaleString("en-US", {
-        dateStyle: "full",
-        timeStyle: "short",
-        timeZone: payload?.attendees?.[0]?.timeZone || "Asia/Kolkata",
-      });
-    } catch {
-      /* fall back to raw startTime */
-    }
-
     if (!phone) {
       console.warn(
         `Cal webhook: ${triggerEvent} received but no phone number found — ` +
@@ -103,88 +88,26 @@ router.post("/", async (req, res) => {
       return;
     }
 
-    // Build the reschedule/cancel links from the booking's unique id. Cal puts
-    // these same links in its email; we derive them from the `uid` so we can
-    // hand them to the patient later — only when they ask in chat.
+    // Cal puts reschedule/cancel links in its email; we derive the same links
+    // from the booking `uid` so the bot can hand them over later in chat.
     const uid = payload?.uid || payload?.bookingId || null;
-    const rescheduleLink = uid ? `https://cal.com/reschedule/${uid}` : null;
-    const cancelLink = uid ? `https://cal.com/booking/${uid}?cancel=true` : null;
 
-    // --- Cancellation ---------------------------------------------------------
-    if (triggerEvent === "BOOKING_CANCELLED") {
-      if (uid) {
-        try {
-          await deleteBooking(uid);
-          console.log(`🗑️  Booking ${uid} removed for ${phone}`);
-        } catch (e) {
-          console.error("Could not delete cancelled booking:", e.message);
-        }
-      }
-      const message =
-        `Hi ${name}! ❌ Your appointment${when ? ` for *${when}*` : ""} has been cancelled. ` +
-        `If you'd like to book again, just message me here.`;
-      await sendMessage(phone, message);
-      console.log(`📅 Cancellation confirmation sent to ${phone}`);
-      return;
-    }
-
-    // --- Reschedule -----------------------------------------------------------
-    if (triggerEvent === "BOOKING_RESCHEDULED") {
-      // A reschedule gives Cal a fresh uid + time, so the old links go stale.
-      // Save the new booking; getLatestBooking() will return this newest row.
-      if (uid) {
-        try {
-          await saveBooking({
-            waId: phone,
-            uid,
-            rescheduleLink,
-            cancelLink,
-            startTime: payload?.startTime || null,
-            title: payload?.title || null,
-          });
-          console.log(`🔄 Booking updated to ${uid} for ${phone}`);
-        } catch (e) {
-          console.error("Could not update rescheduled booking:", e.message);
-        }
-      }
-      const message =
-        `Hi ${name}! 🔄 Your appointment has been moved to *${when}*. ` +
-        `See you then! If you need to change it again, just message me here.`;
-      await sendMessage(phone, message);
-      console.log(`📅 Reschedule confirmation sent to ${phone}`);
-      return;
-    }
-
-    // --- New booking (BOOKING_CREATED) ---------------------------------------
-    // Remember this booking (keyed by phone) so the bot can share the links on
-    // request. If saving fails, we still send the confirmation — it's not fatal.
-    if (uid) {
-      try {
-        await saveBooking({
-          waId: phone,
-          uid,
-          rescheduleLink,
-          cancelLink,
-          startTime: payload?.startTime || null,
-          title: payload?.title || null,
-        });
-        console.log(`🗂️  Booking ${uid} saved for ${phone}`);
-      } catch (e) {
-        console.error("Could not save booking (sending confirmation anyway):", e.message);
-      }
-    } else {
-      console.warn("Cal webhook: no booking uid in payload — reschedule links unavailable.");
-    }
-
-    const message =
-      `Hi ${name}! ✅ Your appointment is confirmed for *${when}*. ` +
-      `See you then! If you ever need to reschedule or cancel, just message me here.`;
-
-    await sendMessage(phone, message);
-    console.log(`📅 Booking confirmation sent to ${phone}`);
+    await processBookingEvent({
+      triggerEvent,
+      waId: phone,
+      name: payload?.attendees?.[0]?.name || payload?.responses?.name?.value,
+      startTime: payload?.startTime,
+      timeZone: payload?.attendees?.[0]?.timeZone,
+      uid,
+      title: payload?.title,
+      rescheduleLink: uid ? `${CAL_BASE_URL}/reschedule/${uid}` : null,
+      cancelLink: uid ? `${CAL_BASE_URL}/booking/${uid}?cancel=true` : null,
+    });
   } catch (err) {
     console.error("Cal webhook error:", err);
   }
 });
 
 module.exports = router;
+module.exports.verifySignature = verifySignature;
+module.exports.extractPhone = extractPhone;

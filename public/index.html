@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Receptionist Demo</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="stage">
+  <section class="intro">
+    <p class="eyebrow">Live demo · WhatsApp AI Receptionist</p>
+    <h1>Chat with a clinic's AI receptionist</h1>
+    <p>This is the same bot that answers on WhatsApp, running in your browser. Ask about hours or prices, try something off-topic, or book an appointment and watch the confirmation arrive.</p>
+    <ul class="status" id="status"><li>Connecting…</li></ul>
+    <p class="small">Bright Smile Dental is a made-up clinic. Chats are not kept after the server restarts.</p>
+  </section>
+
+  <section class="phone" aria-label="Chat">
+    <header class="bar">
+      <div class="avatar" aria-hidden="true">🦷</div>
+      <div>
+        <div class="name" id="bizName">Receptionist</div>
+        <div class="sub" id="sub">online</div>
+      </div>
+    </header>
+
+    <div class="messages" id="messages" aria-live="polite">
+      <div class="day">TODAY</div>
+    </div>
+
+    <div class="chips" id="chips">
+      <button type="button">What are your hours?</button>
+      <button type="button">How much is teeth whitening?</button>
+      <button type="button">I'd like to book a check-up</button>
+      <button type="button">Write me an essay about Rome</button>
+    </div>
+
+    <form class="composer" id="composer">
+      <input id="input" autocomplete="off" maxlength="500" placeholder="Type a message" aria-label="Message">
+      <button id="send" aria-label="Send">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z"/></svg>
+      </button>
+    </form>
+  </section>
+</main>
+<script src="chat.js"></script>
+</body>
+</html>

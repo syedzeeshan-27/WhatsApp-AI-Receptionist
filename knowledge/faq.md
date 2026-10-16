@@ -1,46 +1,56 @@
 # Bright Smile Dental — Knowledge Base
 
-> This file is the bot's source of truth. Edit it per client. The bot reads it
-> at runtime and answers ONLY from what's here (it won't invent details).
-> Restart the server after editing. Keep bullets tight — the bot quotes from
-> this, so short = cheaper + clearer. Follow the 80/20 rule: include what a
-> customer would actually ask, skip marketing fluff.
+> This file is the bot's source of truth. The bot answers ONLY from what's here
+> and won't invent details. Restart the server after editing.
+> Bright Smile Dental is a made-up example clinic. Replace everything below with
+> your own business (knowledge/TEMPLATE.md has the blank structure).
 
 ## About
-- (One or two lines: what the business is, who it serves, what makes it notable.)
+- Bright Smile Dental is a family dental clinic for kids and adults.
+- Three dentists and two hygienists. Gentle care for nervous patients.
 
 ## Services / Offerings
-- General check-ups & cleaning
+- Check-up & cleaning
 - Fillings
-- Teeth whitening
-- (Add the clinic's real services here. Group if many; mark anything seasonal.)
+- Teeth whitening (in-clinic, about 1 hour)
+- Root canal treatment
+- Kids' dentistry (ages 3+)
+- Emergency appointments for toothache or a broken tooth (same day when possible)
 
 ## Pricing
-- (Add real prices per service, or say "varies — book a consultation".)
-- (Note free consults, packages, or insurance accepted.)
+- Check-up & cleaning: $80
+- Filling: from $120
+- Teeth whitening: $250
+- Root canal: from $600 (exact price after an X-ray)
+- Kids' check-up: $50
+- First consultation for new patients is free.
+- We accept most major dental insurance plans. Bring your insurance card.
 
 ## Hours
 - Monday–Friday: 9:00 AM – 6:00 PM
 - Saturday: 9:00 AM – 1:00 PM
 - Sunday: Closed
-- (Call out holidays / lunch breaks / by-appointment-only.)
+- Closed on public holidays.
 
 ## Location & Contact
-- Address: (add)
-- Phone: (add)
-- Email: (add)
-- (Parking / accessibility / online-only if relevant.)
+- Address: 42 Example Street, Springfield
+- Phone: +1 555 0100
+- Email: hello@brightsmile.example
+- Free parking behind the building. Step-free access.
 
 ## Booking & Appointments
-- Booking is done online via the link the bot shares.
-- To reschedule or cancel: if the patient has a booking, the bot shares their personal reschedule/cancel link. If no booking link is available, ask them to share the confirmation email they received, or offer the booking link to pick a new time.
-- (Cancellation window / fees — add the clinic's real policy here.)
-- (Walk-ins accepted? Typical wait times?)
+- Book online with the booking link (the receptionist can send it).
+- Please cancel or reschedule at least 24 hours ahead. Late cancellations cost $25.
+- Walk-ins are welcome for emergencies, but booked patients go first.
+- To reschedule or cancel, use the link in your booking confirmation, or ask here and we'll send it.
 
 ## Policies & Common Questions
-- (Payment methods, refunds, what to bring, age/eligibility limits.)
-- (Add 3–8 genuine FAQs phrased the way customers actually ask them.)
+- Payment: card, cash, or insurance. Payment is due on the day.
+- Please arrive 10 minutes early for your first visit.
+- Children under 16 need a parent or guardian with them.
+- Whitening is not recommended during pregnancy.
 
 ## What we do NOT offer / Out of scope
-- (Short list of things people wrongly ask for, so the bot can decline cleanly —
-  e.g. "we don't do X — try Y".)
+- We don't do braces or orthodontics. We can refer you to a local orthodontist.
+- We don't do dental implants.
+- We can't give medical advice over chat. For severe pain or swelling, call us or go to urgent care.

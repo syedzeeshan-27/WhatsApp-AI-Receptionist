@@ -1,21 +1,37 @@
 {
   "name": "whatsapp-ai-receptionist",
-  "version": "0.1.0",
-  "description": "WhatsApp AI receptionist bot for small service businesses (config-driven, one deploy per client).",
+  "version": "1.0.0",
+  "description": "Open-source AI receptionist for small clinics on WhatsApp. Answers questions from your FAQ, books appointments via Cal.com, remembers each chat. Includes a browser demo that needs no keys.",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "test": "node --test"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
+  "keywords": [
+    "whatsapp",
+    "chatbot",
+    "ai",
+    "claude",
+    "anthropic",
+    "receptionist",
+    "clinic",
+    "cal.com",
+    "supabase"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/syedzeeshan-27/WhatsApp-AI-Receptionist.git"
+  },
+  "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "@supabase/supabase-js": "^2.45.4",
     "axios": "^1.7.7",
     "dotenv": "^16.4.5",
-    "express": "^4.21.0",
-    "node-cron": "^3.0.3"
+    "express": "^4.21.0"
   }
 }
